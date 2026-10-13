@@ -3193,6 +3193,7 @@ class Client{
       case 'welcome':
         if(m.map&&(m.map!==MAP_ID||m.mode!==MODE||m.diff!==DIFF)){ // host runs another map/mode: reload into it and rejoin
           try{sessionStorage.setItem('hs_auto','join');}catch(e){}
+          closeNet(); // tell the host we're leaving, otherwise this first connection lingers as a ghost player
           location.replace(location.pathname+`?map=${m.map}&mode=${m.mode}&diff=${m.diff}#`+(location.hash.slice(1)||JOIN_CODE)); return; }
         this.id=m.id; this.team=m.team; applyTeamView(m.team); setHillColor(-1); this.send({t:'load',p:this.load.p,s:this.load.s,sk:[mySkin(WKEYS[this.load.p]),mySkin(WKEYS[this.load.s]),mySkin('knife')]});
         showMsg(`<span style="color:#2fa8ff">فريقك أزرق</span> • <span style="color:#ff3b5c">العدو أحمر</span> — ${MODE_HINT[MODE]}`,4000); break;
@@ -4169,6 +4170,10 @@ function startLocal(online){
   if(online) hostRoom();
   enterGame();
 }
+// Close P2P/WebSocket links explicitly when leaving or reloading: a page that just navigates away often
+// doesn't fire 'close' on the host's side, which left the leaver in the match as a frozen ghost.
+function closeNet(){ try{ if(peer) peer.destroy(); }catch(e){} try{ if(ws){ ws.onclose=null; ws.close(); } }catch(e){} }
+addEventListener('pagehide',closeNet);
 function hostRoom(){
   const code=Array.from({length:5},()=>'ABCDEFGHJKMNPQRSTUVWXYZ23456789'[Math.random()*31|0]).join('');
   const room=$('room'); room.classList.remove('hidden'); room.textContent='جارٍ إنشاء الغرفة...';
@@ -4259,11 +4264,14 @@ $('bSrv').onclick=()=>startWithConfig('srv');
 $('bJoin').onclick=()=>joinRoom($('code').value);
 $('code').addEventListener('keydown',e=>{ if(e.key==='Enter') joinRoom($('code').value); });
 if(location.hash.length>4) $('code').value=location.hash.slice(1);
-{ let auto=null; try{ auto=sessionStorage.getItem('hs_auto'); sessionStorage.removeItem('hs_auto'); const ts=sessionStorage.getItem('hs_ts'); if(ts) $('tsize').value=ts; }catch(e){}
+// Auto-start after a config reload (map/mode/difficulty change, or joining a room on another map).
+// Deferred to the next tick: this block sits above `const MM`, PERF and the main loop, so calling
+// enterGame() synchronously here threw "Cannot access 'MM' before initialization" and left a black screen.
+setTimeout(()=>{ let auto=null; try{ auto=sessionStorage.getItem('hs_auto'); sessionStorage.removeItem('hs_auto'); const ts=sessionStorage.getItem('hs_ts'); if(ts) $('tsize').value=ts; }catch(e){}
   if(auto==='off'||auto==='host') startLocal(auto==='host');
   else if(auto==='srv') hostServer();
   else if(auto==='sjoin'&&location.hash.length>4) srvStart('op=join&code='+location.hash.slice(1),t=>lobMsg(t));
-  else if(auto==='join'&&location.hash.length>4) joinRoom(location.hash.slice(1)); }
+  else if(auto==='join'&&location.hash.length>4) joinRoom(location.hash.slice(1)); },0);
 $('lobby').querySelector('.sub').textContent=`${MODES[MODE].name} • ${MAPS[MAP_ID].name} — شوتر أونلاين مع قدرات خارقة`;
 
 /* =====================================================================
