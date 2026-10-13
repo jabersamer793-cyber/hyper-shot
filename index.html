@@ -425,7 +425,7 @@ body.touch .tb{-webkit-tap-highlight-color:transparent}
 #tPick{left:50%;top:62%;transform:translateX(-50%);width:auto;height:auto;padding:6px 14px;border-radius:12px;font-size:14px;border-color:#ffcc33}
 /* ---- pause menu, chat, quick chat, health drops ---- */
 #pause{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(4,6,18,.55);z-index:30}
-#pmGyroBox label{display:flex;justify-content:space-between;align-items:center} #pmGyroBox input[type=checkbox]{width:22px;height:22px;accent-color:#00e5ff}
+#pmGyroBox label{display:flex;justify-content:space-between;align-items:center} #pause #pmGyroBox label select{width:auto;min-width:150px} #pmGyroBox input[type=checkbox]{width:22px;height:22px;accent-color:#00e5ff}
 .pm,.lcol,.askins,#keyList,#armSkins{overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y} input[type=range]{touch-action:none}
 .pmrow{display:flex;justify-content:space-between;align-items:center;margin:8px 2px;font-size:14px} .pmrow input{width:22px;height:22px;accent-color:#00e5ff}
 #keys{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(4,6,18,.6);z-index:41;direction:rtl}
@@ -509,9 +509,64 @@ body.touch #mini{left:166px} #tLoad{left:calc(114px*var(--bs,1));top:calc(10px*v
 #ammo{font-size:46px;text-shadow:0 2px 8px #000} #ammo small{font-size:20px}
 body.touch #ranks{transform:translateX(-50%) scale(.75);transform-origin:top center} body.touch #kstreak{display:none}
 @media (max-width:900px){#ranks{transform:translateX(-50%) scale(.8);transform-origin:top center}}
+/* ---------- boot / preload screen ---------- */
+#boot{position:fixed;inset:0;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;
+  background:radial-gradient(ellipse at 50% 30%,#1b2a6b 0%,#070a18 70%);color:#e8ecff;font-family:Cairo,"Segoe UI",Tahoma,sans-serif;direction:rtl;transition:opacity .35s}
+#boot.bt-out{opacity:0;pointer-events:none}
+#boot .bt-logo{font:800 44px/1 Rajdhani,"Segoe UI",sans-serif;letter-spacing:3px;direction:ltr;color:#fff;text-shadow:0 0 24px rgba(0,229,255,.45)}
+#boot .bt-logo b{color:#00e5ff}
+#boot .bt-bar{width:min(420px,82vw);height:12px;border-radius:6px;background:rgba(255,255,255,.1);overflow:hidden;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+#boot .bt-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#2fa8ff,#00e5ff);box-shadow:0 0 12px #00e5ff;transition:width .2s}
+#boot #btTxt{font-size:14px;opacity:.9;text-align:center;direction:rtl}
+#boot .bt-note{font-size:12px;opacity:.6;text-align:center;max-width:420px}
+#boot #btSkip{margin-top:4px;padding:8px 18px;border-radius:10px;border:1px solid rgba(0,229,255,.5);background:rgba(0,229,255,.12);color:#fff;font:700 14px Cairo,sans-serif;cursor:pointer}
+#boot #btSkip.hidden{display:none}
 </style>
 </head>
 <body>
+<!-- first visit: download and cache every map/weapon/skin/sound so matches never stall on a model; later visits only check the cache -->
+<div id="boot">
+  <div class="bt-logo">HYPER <b>SHOT</b></div>
+  <div class="bt-bar"><i id="btFill"></i></div>
+  <div id="btTxt">جارٍ التحضير...</div>
+  <button id="btSkip" class="hidden">ابدأ الآن ⟵</button>
+  <div class="bt-note">أول مرة بس: بنحمّل الخرائط والأسلحة والسكنات على جهازك عشان يصير اللعب سلس</div>
+</div>
+<script>
+window.HS_PRELOAD=(function(){
+  var boot=document.getElementById('boot'), fill=document.getElementById('btFill'), txt=document.getElementById('btTxt'), skip=document.getElementById('btSkip');
+  var finished=false, done; var p=new Promise(function(r){ done=r; });
+  function finish(){ if(finished) return; finished=true; boot.classList.add('bt-out'); setTimeout(function(){ boot.remove(); },400); done(); }
+  skip.onclick=finish; setTimeout(function(){ skip.classList.remove('hidden'); },5000); // impatient? start now, the rest keeps downloading
+  // register the service worker early so it controls the game's own requests and serves them from this cache
+  if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')) navigator.serviceWorker.register('sw.js').catch(function(){});
+  var MB=function(n){ return (n/1048576).toFixed(1); };
+  var CDN='https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/gltf/';
+  (async function(){
+    if(!('caches' in window)) return finish();
+    var man; try{ man=await (await fetch('assets/manifest.json',{cache:'no-store'})).json(); }catch(e){ return finish(); }
+    var cache=await caches.open('hs-v1'); // same cache the service worker serves from (sw.js)
+    var sameV=false; try{ sameV=localStorage.getItem('hs_assets_v')===man.v; }catch(e){}
+    var list=man.files.map(function(f){ return {u:new URL(f.u,location.href).href,s:f.s}; })
+      .concat([{u:CDN+'draco_wasm_wrapper.js',s:60000},{u:CDN+'draco_decoder.wasm',s:285000}]);
+    var total=0, got=0, failed=0, todo=[]; list.forEach(function(f){ total+=f.s; });
+    for(var i=0;i<list.length;i++){ var hit=sameV?await cache.match(list[i].u):null; if(hit) got+=list[i].s; else todo.push(list[i]); }
+    function show(){ var k=total?got/total:1; fill.style.width=(k*100).toFixed(1)+'%';
+      txt.textContent='جارٍ تحميل الخرائط والأسلحة والسكنات… '+Math.round(k*100)+'%  ('+MB(got)+' / '+MB(total)+' MB)'; }
+    if(!todo.length){ fill.style.width='100%'; txt.textContent='كل شي جاهز ✓'; return setTimeout(finish,150); }
+    show();
+    var next=0;
+    async function worker(){ while(next<todo.length){ var f=todo[next++];
+      try{ var r=await fetch(f.u,{cache:'reload'}); if(r.ok) await cache.put(f.u,r); else failed++; }catch(e){ failed++; }
+      got+=f.s; show(); } }
+    await Promise.all([worker(),worker(),worker(),worker(),worker(),worker()]);
+    if(!failed){ try{ localStorage.setItem('hs_assets_v',man.v); }catch(e){} }
+    fill.style.width='100%'; txt.textContent=failed?('خلصنا — '+failed+' ملف ما تحمّل، رح ينجاب وقت اللعب'):'كل شي جاهز ✓';
+    setTimeout(finish,failed?900:250);
+  })().catch(finish);
+  return p;
+})();
+</script>
 <div id="game"></div>
 
 <div id="hud" class="hidden">
@@ -633,8 +688,9 @@ body.touch #ranks{transform:translateX(-50%) scale(.75);transform-origin:top cen
     <label><span>الصوت</span><span id="pmVolV"></span></label><input id="pmVol" type="range" min="0" max="1" step="0.05">
     <label><span>حساسية الماوس</span><span id="pmSensV"></span></label><input id="pmSens" type="range" min="0.3" max="3" step="0.1">
     <label><span>مجال الرؤية (FOV)</span><span id="pmFovV"></span></label><input id="pmFov" type="range" min="70" max="100" step="1">
-    <div id="pmGyroBox"><label><span>🎯 التصويب بالجيروسكوب</span><input id="pmGyro" type="checkbox"></label>
+    <div id="pmGyroBox"><label><span>🎯 الجيروسكوب</span><select id="pmGyro"><option value="off">مطفي</option><option value="ads">عند التصويب بس</option><option value="always">دايماً</option></select></label>
     <label><span>حساسية الجيروسكوب</span><span id="pmGyroV"></span></label><input id="pmGyroS" type="range" min="0.2" max="3" step="0.1">
+    <label><span>حساسية الجيروسكوب وقت التصويب</span><span id="pmGyroAV"></span></label><input id="pmGyroA" type="range" min="0.2" max="3" step="0.1">
     <label><span>حجم الأزرار</span><span id="pmBtnV"></span></label><input id="pmBtn" type="range" min="0.7" max="1.6" step="0.05">
     <label><span>عكس المحور العمودي (Y)</span><input id="pmGyroIY" type="checkbox"></label>
     <label><span>عكس المحور الأفقي (X)</span><input id="pmGyroIX" type="checkbox"></label></div>
@@ -722,6 +778,8 @@ import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {DRACOLoader} from 'three/addons/loaders/DRACOLoader.js';
 import {MeshoptDecoder} from 'three/addons/libs/meshopt_decoder.module.js';
 import {FBXLoader} from 'three/addons/loaders/FBXLoader.js';
+// wait for the boot screen to cache the assets, so the loaders below read them from the device instead of the network
+await window.HS_PRELOAD;
 
 // @@SHARED-BEGIN (game rules, maps, physics, authoritative Server: also loaded by server/server.js on Node)
 /* =====================================================================
@@ -1881,7 +1939,9 @@ function sfxSynth(k,v){
 const SET={q:'auto',vol:0.8,sens:1.2,fov:80};
 try{ const j=JSON.parse(localStorage.getItem('hs_set')||'{}'); Object.assign(SET,j); }catch(e){}
 const saveSet=()=>{ try{ localStorage.setItem('hs_set',JSON.stringify(SET)); }catch(e){} };
-const renderer=new THREE.WebGLRenderer({antialias:true});
+// phones: MSAA costs a lot of fill-rate on mobile GPUs and is hard to see on small high-DPI screens
+const COARSE=matchMedia('(pointer: coarse)').matches;
+const renderer=new THREE.WebGLRenderer({antialias:!COARSE,powerPreference:'high-performance'});
 renderer.setPixelRatio(Math.min(devicePixelRatio,matchMedia('(pointer: coarse)').matches?1:1.5)); renderer.setSize(innerWidth,innerHeight); renderer.autoClear=false;
 renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=DAY?1.0:1.15;
 document.getElementById('game').appendChild(renderer.domElement);
@@ -3758,7 +3818,9 @@ function updateHudFrame(c){
   document.querySelectorAll('.ws').forEach((e,i)=>e.classList.toggle('on',i===c.slot));
   if(TOUCH){ document.querySelectorAll('.tb[data-cd]').forEach(el=>{const k=el.dataset.cd; el.style.setProperty('--cd',c.cd[k]/CD[k]*100);});
     const u=$('tUlt'); u.style.setProperty('--cd',c.ut>0?0:100-c.u); u.style.boxShadow=c.u>=100&&c.ut<=0?'0 0 18px #ffcc33':'';
-    $('tScope').style.display=WKEYS[c.w]==='sniper'?'flex':'none'; }
+    // aim-down-sights works for every gun (right mouse on PC), so the touch Aim button shows for all of them; only the knife has no sights
+    const sc=$('tScope'), canAim=!w.melee; sc.style.display=canAim?'flex':'none';
+    if(!canAim&&rightDown){ rightDown=false; } sc.classList.toggle('act',canAim&&rightDown); }
   for(const k of ['slide','dash','gren','shield']){const el=$('ab-'+k), p=c.cd[k]/CD[k]*100; const cdEl=el.querySelector('.cd'); cdEl.style.setProperty('--p',p+'%'); cdEl.style.visibility=p>0.5?'visible':'hidden'; /* an empty conic still draws a 1px seam at 12 o'clock */ el.querySelector('.t').textContent=c.cd[k]>0?Math.ceil(c.cd[k]):'';
     const cool=c.cd[k]>0; if(el._cool&&!cool){ el.classList.remove('ready-flash'); void el.offsetWidth; el.classList.add('ready-flash'); } el.classList.toggle('cool',cool); el._cool=cool;}
   { const st=Math.max(0,c.streak|0), ks=$('kstreak'); ks.querySelector('i').style.height=((c.streakT||0)/STREAK_WIN*100)+'%';
@@ -3809,7 +3871,7 @@ function openMenu(){
   if(!client) return; playing=false; mouseDown=false; rightDown=false; for(const k in KEYS) KEYS[k]=false;
   $('pmQ').value=SET.q; $('pmVol').value=SET.vol; $('pmSens').value=SET.sens; $('pmFov').value=SET.fov; menuLabels();
   $('pmPerf').checked=PERF.on; $('pmTouch').style.display=TOUCH?'':'none'; $('pmKeys').style.display=TOUCH?'none':''; $('pmGyroBox').style.display=TOUCH?'':'none';
-  $('pmBtn').value=SET.btnS||1; $('pmBtnV').textContent=Math.round((SET.btnS||1)*100)+'%'; $('pmGyro').checked=gyroOn; $('pmGyroIY').checked=!!SET.gyroInvY; $('pmGyroIX').checked=!!SET.gyroInvX; $('pmGyroS').value=SET.gyroS||1; $('pmGyroV').textContent=(+(SET.gyroS||1)).toFixed(1);
+  $('pmBtn').value=SET.btnS||1; $('pmBtnV').textContent=Math.round((SET.btnS||1)*100)+'%'; $('pmGyro').value=gyroOn?SET.gyroMode:'off'; $('pmGyroIY').checked=!!SET.gyroInvY; $('pmGyroIX').checked=!!SET.gyroInvX; $('pmGyroS').value=SET.gyroS||1; $('pmGyroV').textContent=(+(SET.gyroS||1)).toFixed(1); $('pmGyroA').value=SET.gyroA||1; $('pmGyroAV').textContent=(+(SET.gyroA||1)).toFixed(1);
   $('pmWarn').textContent=peer&&server?'أنت المضيف — إذا طلعت رح تتسكّر الغرفة على الكل':'';
   $('pause').classList.remove('hidden');
 }
@@ -4100,34 +4162,63 @@ function enterGame(){
   btn('tLoad',()=>{ loadoutOpen?closeLoadout(false):(client.lobbyOn?openArmory():openLoadout()); });
   btn('tTab',()=>{ const b=$('board'); b.classList.toggle('hidden'); if(!b.classList.contains('hidden')&&client.snap) drawBoard(client,client.snap); });
 }
+/* ---------- gyro aiming, modelled on what mobile shooters ship:
+   - modes like PUBG Mobile: off / only while aiming (ADS or scope) / always, with its own ADS sensitivity
+   - "player space" yaw (Jibb Smart / GyroWiki, used by Fortnite and others): turning is measured around gravity, but
+     never more than the local yaw+roll magnitude (relax factor 1.41), so a tilted grip still aims naturally and
+     tilting the phone up/down no longer leaks into left/right like the old pure world-space version did
+   - tightening below ~2°/s (hand tremor + sensor bias) and soft tiered smoothing (slow motion is averaged,
+     fast flicks pass through untouched)
+   - scope zoom lowers sensitivity automatically (scaled by the current FOV), like per-scope sensitivities
+   Pitch keeps the original default sign; the invert switches flip either axis. */
 let gyroOn=false;
-function gyroAxes(r){ const a=((screen.orientation&&screen.orientation.angle)??window.orientation??0)%360;
-  // rotationRate: alpha = around z (out of screen), beta = around x, gamma = around y (device axes)
-  if(a===90) return [r.beta,-r.gamma]; if(a===270||a===-90) return [-r.beta,r.gamma]; return [r.gamma,r.beta]; }
-// yaw = rotation about the real world 'up' (from gravity), so it works however the phone is tilted; pitch = about the screen's horizontal axis
-const _gUp=[0,0,1]; const IOS_G=typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function';
-function onGyro(e){ const r=e.rotationRate, g=e.accelerationIncludingGravity; if(!gyroOn||!r||!client||!playing||!TOUCH) return;
-  const dt=(e.interval>1?e.interval/1000:e.interval)||0.016;
-  if(g&&g.x!=null){ const sg=IOS_G?-1:1, k=0.15; _gUp[0]+=(sg*g.x-_gUp[0])*k; _gUp[1]+=(sg*g.y-_gUp[1])*k; _gUp[2]+=(sg*g.z-_gUp[2])*k; }
-  const L=Math.hypot(_gUp[0],_gUp[1],_gUp[2])||1, ux=_gUp[0]/L, uy=_gUp[1]/L, uz=_gUp[2]/L;
-  const wx=r.beta||0, wy=r.gamma||0, wz=r.alpha||0;              // deg/s around device x, y, z
-  const yawRate=wx*ux+wy*uy+wz*uz;                                // turn about world up
-  const [,pch]=gyroAxes(r);
-  const k2=(SET.gyroS||1)*(client.zoomed?0.5:1)*Math.PI/180*dt;
-  const ix=SET.gyroInvX?-1:1, iy=SET.gyroInvY?1:-1;                          // default pitch: tilt the top away = look down
-  client.yaw+=yawRate*k2*ix; client.pitch=clamp(client.pitch+(pch||0)*k2*iy,-1.55,1.55); }
-async function setGyro(on){
-  if(on&&typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){ // iOS asks once, on a tap
-    try{ if(await DeviceMotionEvent.requestPermission()!=='granted'){ on=false; showMsg('ما في إذن للجيروسكوب',1500); } }catch(e){ on=false; } }
+if(SET.gyroMode==null) SET.gyroMode=SET.gyro?'always':'ads'; // the old on/off switch meant "always"
+// Two separate questions that used to share one test: newer Chrome also has DeviceMotionEvent.requestPermission,
+// so "has requestPermission" made Android look like iOS and flipped gravity (= left/right broken on Android).
+const IS_IOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1); // iOS reports gravity with the opposite sign
+const NEEDS_PERM=typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'; // must ask, from a tap
+const GY={down:[0,-1,0],t:0,hist:[],asked:false,want:null};
+const scrAngle=()=>((((screen.orientation&&screen.orientation.angle)??window.orientation??0)%360)+360)%360;
+// device axes -> screen axes (x right, y up, z out of the screen) for the current screen rotation
+function toScreen(x,y,z,a){ if(a===90) return [-y,x,z]; if(a===270) return [y,-x,z]; if(a===180) return [-x,-y,z]; return [x,y,z]; }
+function onGyro(e){ const r=e.rotationRate, g=e.accelerationIncludingGravity;
+  if(!gyroOn||!r||!client||!playing||!TOUCH){ GY.t=0; GY.hist.length=0; return; }
+  const now=performance.now(), dt=GY.t?Math.min(0.05,Math.max(0.004,(now-GY.t)/1000)):0.016; GY.t=now; // event timestamps: 'interval' units differ between browsers
+  const a=scrAngle();
+  if(g&&g.x!=null){ const sg=IS_IOS?1:-1, d=toScreen(sg*g.x,sg*g.y,sg*g.z,a); // gravity 'down' (iOS reports the opposite sign)
+    for(let i=0;i<3;i++) GY.down[i]+=(d[i]-GY.down[i])*0.1; }
+  const aiming=client.zoomed||client.aiming;
+  if(SET.gyroMode==='ads'&&!aiming){ GY.hist.length=0; return; }
+  const L=Math.hypot(GY.down[0],GY.down[1],GY.down[2])||1, gy=GY.down[1]/L, gz=GY.down[2]/L;
+  const [wx,wy,wz]=toScreen(r.beta||0,r.gamma||0,r.alpha||0,a); // °/s about screen x (pitch), y (yaw), z (roll)
+  const worldYaw=-(gy*wy+gz*wz), local=Math.hypot(wy,wz);
+  let yaw=Math.sign(worldYaw)*Math.min(Math.abs(worldYaw)*1.41,local), pitch=wx;
+  const m=Math.hypot(yaw,pitch), TIGHT=2; if(m<TIGHT){ const f=(m/TIGHT)**2; yaw*=f; pitch*=f; } // quadratic fade: sensor bias (~0.1-0.5°/s) ≈ 0, real motion untouched
+  GY.hist.push([yaw,pitch]); if(GY.hist.length>4) GY.hist.shift();
+  let ay=0,ap=0; for(const h of GY.hist){ ay+=h[0]; ap+=h[1]; } ay/=GY.hist.length; ap/=GY.hist.length;
+  const SM=8, w=Math.min(1,Math.max(0,(m-SM/2)/(SM/2))); yaw=yaw*w+ay*(1-w); pitch=pitch*w+ap*(1-w);
+  const sens=(aiming?(SET.gyroA||1):(SET.gyroS||1))*Math.min(1,camera.fov/(SET.fov||80));
+  const k=sens*Math.PI/180*dt, ix=SET.gyroInvX?-1:1, iy=SET.gyroInvY?1:-1;
+  client.yaw+=yaw*k*ix; client.pitch=clamp(client.pitch+pitch*k*iy,-1.55,1.55); }
+async function setGyro(mode){ let on=mode!=='off'; GY.want=null;
+  if(on&&NEEDS_PERM){ // iOS (and newer Chrome) ask once, and only from a tap
+    try{ if(await DeviceMotionEvent.requestPermission()!=='granted'){ on=false; showMsg('ما في إذن للجيروسكوب',1500); } }
+    catch(e){ // not called from a tap (e.g. a <select> change on iOS): ask again on the next touch instead of giving up
+      GY.want=mode; showMsg('المس الشاشة لتشغيل الجيروسكوب',1800); $('pmGyro').value=mode; return; } }
   if(on&&typeof DeviceMotionEvent==='undefined'){ on=false; showMsg('جهازك ما بيدعم الجيروسكوب',1500); }
-  gyroOn=on; SET.gyro=on; saveSet(); $('pmGyro').checked=on;
+  gyroOn=on; if(on) SET.gyroMode=mode; SET.gyro=on; saveSet(); $('pmGyro').value=on?SET.gyroMode:'off';
+  GY.t=0; GY.hist.length=0;
   removeEventListener('devicemotion',onGyro); if(on) addEventListener('devicemotion',onGyro); }
-$('pmGyro').onchange=e=>setGyro(e.target.checked);
+$('pmGyro').onchange=e=>setGyro(e.target.value);
+$('pmGyroA').oninput=e=>{ SET.gyroA=+e.target.value; saveSet(); $('pmGyroAV').textContent=(+SET.gyroA).toFixed(1); };
+// browsers that ask for permission only allow it from a tap, so a saved "on" setting is re-applied on the first touch after a reload
+addEventListener('touchend',()=>{ if(GY.want){ setGyro(GY.want); return; }
+  if(SET.gyro&&!gyroOn&&NEEDS_PERM&&!GY.asked){ GY.asked=true; setGyro(SET.gyroMode); } },{passive:true});
 $('pmBtn').oninput=e=>{ SET.btnS=+e.target.value; saveSet(); applyBtnScale(); $('pmBtnV').textContent=Math.round(SET.btnS*100)+'%'; };
 $('pmGyroIY').onchange=e=>{ SET.gyroInvY=e.target.checked; saveSet(); };
 $('pmGyroIX').onchange=e=>{ SET.gyroInvX=e.target.checked; saveSet(); };
 $('pmGyroS').oninput=e=>{ SET.gyroS=+e.target.value; saveSet(); $('pmGyroV').textContent=(+SET.gyroS).toFixed(1); };
-if(SET.gyro&&typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission!=='function') setGyro(true); // Android: no prompt needed
+if(SET.gyro&&typeof DeviceMotionEvent!=='undefined'&&!NEEDS_PERM) setGyro(SET.gyroMode); // no prompt needed on this browser
 const TOUCH_IDS=['tLoad','tFire','tJump','tScope','tSlide','tDash','tGren','tShield','tUlt','tReload','tWeap','tTab','tMenu','tChat','tPick'];
 const orientKey=()=>innerWidth>=innerHeight?'land':'port';
 let _tlKey='';
@@ -4277,7 +4368,7 @@ $('lobby').querySelector('.sub').textContent=`${MODES[MODE].name} • ${MAPS[MAP
 /* =====================================================================
    MAIN LOOP
 ===================================================================== */
-let last=performance.now(), miniT=0;
+let last=performance.now(), miniT=0, hudT=0;
 renderer.info.autoReset=false;
 // ---------- performance overlay (F3 / menu): fps, frame time, draw calls, triangles, memory, ping
 const PERF={on:!!SET.perf,acc:0,n:0,worst:0,t:0};
@@ -4296,20 +4387,22 @@ function frame(){
   const now=performance.now(), dt=Math.min(0.05,(now-last)/1000); last=now; const t=now/1000;
   padRings.forEach((r,i)=>{const k=(t*1.2+i*0.3)%1; r.scale.setScalar(0.6+k*0.8); r.position.y=0.15+k*1.2; r.material.opacity=1-k;});
   pickMeshes.forEach((m,i)=>{m.rotation.y=t*2; m.position.y=PICKUPS_DEF[i].y+0.9+Math.sin(t*3+i)*0.12;});
-  if(client){ client.update(dt); updateHudFrame(client); if((miniT-=dt)<=0){miniT=0.05; drawMini(client);} }
+  // the HUD is DOM: on phones refresh it at 20 Hz instead of every frame (style/layout work is the expensive part there)
+  if(client){ client.update(dt); if(!TOUCH||(hudT-=dt)<=0){ hudT=0.05; updateHudFrame(client); } if((miniT-=dt)<=0){miniT=0.05; drawMini(client);} }
   else { camera.position.set(Math.sin(t*0.08)*60,26,Math.cos(t*0.08)*45); camera.lookAt(0,0,0); }
   updateFx(dt); updateLoot(dt); updateCrates(dt); animDrops(t); animWDrops(t); watchPerf(dt); AURA_T.value=t;
   fitView(); if(TOUCH&&!TE) applyTouchLayout();
   if(armOpen) renderArmory(dt); else if(loadoutOpen) renderLoPreview(dt);
   if(barriers[0].visible) barriers.forEach(b=>{ b.material.map.offset.y=t*0.25; b.material.opacity=0.28+Math.sin(t*3)*0.08; });
-  renderer.info.reset(); renderer.clear(); if(composer) composer.render(); else renderer.render(scene,camera); renderer.clearDepth(); renderer.render(vmScene,vmCam);
+  // while the main menu (its own WebGL scene) covers the screen, don't also draw the arena behind it: halves GPU work on phones
+  if(client||!MM){ renderer.info.reset(); renderer.clear(); if(composer) composer.render(); else renderer.render(scene,camera); renderer.clearDepth(); renderer.render(vmScene,vmCam); }
   if(PERF.on) perfHud(dt);
   updateDmgNums(dt);
 }
 $('cl').textContent={ctf:`أول من يجمع ${SCORE_LIMIT} أعلام`,tdm:`أول من يوصل ${SCORE_LIMIT} قتلة`,koth:`أول من يوصل ${SCORE_LIMIT} نقطة`}[MODE];
 // ===== main menu scene =====
 const MM=(()=>{ const cv=$('mmCv'); if(!cv) return null;
-  const R=new THREE.WebGLRenderer({canvas:cv,antialias:true}); R.setPixelRatio(Math.min(devicePixelRatio,1.5)); R.toneMapping=THREE.ACESFilmicToneMapping; R.outputColorSpace=THREE.SRGBColorSpace;
+  const R=new THREE.WebGLRenderer({canvas:cv,antialias:!COARSE,powerPreference:'high-performance'}); R.setPixelRatio(Math.min(devicePixelRatio,COARSE?1:1.5)); R.toneMapping=THREE.ACESFilmicToneMapping; R.outputColorSpace=THREE.SRGBColorSpace;
   const sc=new THREE.Scene(); sc.background=new THREE.Color(0x0a1230); sc.fog=new THREE.Fog(0x0a1230,9,34);
   sc.environment=new THREE.PMREMGenerator(R).fromScene(new RoomEnvironment(),0.04).texture;
   const key=new THREE.SpotLight(0xffffff,60,20,0.5,0.6); key.position.set(-3,6,4); sc.add(key,key.target);
