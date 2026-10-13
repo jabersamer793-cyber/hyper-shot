@@ -7,6 +7,13 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
+<!-- installable app (PWA): manifest + icons; the main menu has a "download" button that uses them -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#070a18">
+<meta name="apple-mobile-web-app-title" content="Hyper Shot">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <title>Hyper Shot</title>
 <style>
 :root{--red:#ff3b5c;--blue:#2fa8ff;--cyan:#00e5ff;--bg:#070a18;--panel:rgba(10,14,32,.82);--text:#e8ecff}
@@ -292,6 +299,18 @@ body.touch input,body.touch select{-webkit-user-select:auto;user-select:auto}
 .mmb:hover,.mmb:focus-visible{transform:translateX(-4px);border-color:#00e5ff;box-shadow:0 0 18px rgba(0,229,255,.25);outline:none}
 .mmb.exit{background:linear-gradient(90deg,rgba(120,30,50,.6),rgba(40,14,24,.6))} .mmb.exit:hover{border-color:#ff4d6d;box-shadow:0 0 18px rgba(255,77,109,.25)}
 #mmExitMsg{text-align:center;font-size:13px;opacity:.85;min-height:18px}
+/* install-as-app button: stands out from the other menu items */
+#mmMain .mmb.install b{color:#3dff9a;text-shadow:0 0 14px rgba(61,255,154,.45)}
+#mmMain .mmb.install:before{background:#3dff9a;box-shadow:0 0 12px #3dff9a;transform:scaleY(1);animation:instGlow 2.2s ease-in-out infinite}
+#mmMain .mmb.install:hover{background:linear-gradient(90deg,rgba(61,255,154,.18),rgba(61,255,154,0) 85%)}
+#mmMain .mmb.hidden{display:none}
+@keyframes instGlow{50%{opacity:.35}}
+#mmInst .instHead{display:flex;gap:12px;align-items:center;margin:4px 0 14px}
+#mmInst .instHead img{width:56px;height:56px;border-radius:14px;box-shadow:0 0 18px rgba(0,229,255,.35)}
+#mmInst .instHead b{display:block;font-size:17px} #mmInst .instHead span{font-size:13px;opacity:.8;line-height:1.6}
+#mmInst ol{margin:6px 0 10px;padding-inline-start:22px;line-height:2;font-size:15px}
+#mmInst .key{display:inline-block;padding:0 8px;border-radius:6px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);font-weight:700}
+#mmInst .note{font-size:12.5px;opacity:.7;margin-top:6px}
 .mmback{margin-top:12px}
 body.touch #msg{font-size:17px;white-space:normal;width:92vw}
 body.touch #streak{font-size:30px}
@@ -533,6 +552,9 @@ body.touch #ranks{transform:translateX(-50%) scale(.75);transform-origin:top cen
   <div class="bt-note">أول مرة بس: بنحمّل الخرائط والأسلحة والسكنات على جهازك عشان يصير اللعب سلس</div>
 </div>
 <script>
+// Chrome/Edge/Android fire this as soon as the app is installable, possibly while the boot screen is still up: keep it for the menu's download button
+window.HS_INSTALL=null;
+addEventListener('beforeinstallprompt',function(e){ e.preventDefault(); window.HS_INSTALL=e; if(window.HS_onInstallable) window.HS_onInstallable(); });
 window.HS_PRELOAD=(function(){
   var boot=document.getElementById('boot'), fill=document.getElementById('btFill'), txt=document.getElementById('btTxt'), skip=document.getElementById('btSkip');
   var finished=false, done; var p=new Promise(function(r){ done=r; });
@@ -713,6 +735,7 @@ window.HS_PRELOAD=(function(){
       <button class="mmb" data-go="mmPlay"><b>العب</b><i>PLAY</i></button>
       <button class="mmb" data-go="mmSet"><b>الإعدادات</b><i>SETTINGS</i></button>
       <button class="mmb" data-go="mmHelp"><b>طريقة اللعب</b><i>HOW TO PLAY</i></button>
+      <button class="mmb install hidden" id="mmInstall"><b>⬇ تنزيل اللعبة</b><i>DOWNLOAD</i></button>
       <button class="mmb exit" id="mmExit"><b>خروج</b><i>EXIT</i></button>
       <div id="mmExitMsg"></div>
     </div>
@@ -760,6 +783,12 @@ window.HS_PRELOAD=(function(){
       الصناديق الخشبية والحديدية تتكسر بالرصاص — استعملها كغطاء أو اكسرها لتفتح طريق.
     </div>
     <button class="btn ghost mmback" data-go="none">✕ إغلاق</button>
+    </div>
+    <div id="mmInst" class="mmv hidden">
+      <h3 class="mmh">تنزيل اللعبة<i>DOWNLOAD</i></h3>
+      <div class="instHead"><img src="icons/icon-192.png" alt=""><div><b>Hyper Shot</b><span>بتنزل كتطبيق: أيقونة على شاشتك، بتفتح بشاشة كاملة بدون شريط المتصفح، وبتلعب ضد البوتات حتى بدون إنترنت</span></div></div>
+      <div id="mmInstBody"></div>
+      <button class="btn ghost mmback" data-go="none">✕ إغلاق</button>
     </div>
   </div>
 </div>
@@ -4339,6 +4368,37 @@ $('timeSel').value=DAY?'day':'night';
 function mmShow(id){ document.querySelectorAll('.mmv').forEach(v=>{ if(v.id!=='mmMain') v.classList.toggle('hidden',v.id!==id); });
   document.querySelectorAll('#mmMain .mmb').forEach(b=>b.classList.toggle('on',b.dataset.go===id)); }
 document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>mmShow(b.dataset.go));
+// ---------- download / install as an app (PWA) ----------
+// Chrome, Edge and Android hand us a native install prompt (captured early in the boot script as HS_INSTALL);
+// iOS Safari and Firefox have none, so the button opens step-by-step instructions for that device instead.
+{
+  const ua=navigator.userAgent, iOS=/iPad|iPhone|iPod/.test(ua)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1),
+    android=/Android/i.test(ua), firefox=/Firefox|FxiOS/i.test(ua), samsung=/SamsungBrowser/i.test(ua), edge=/Edg\//.test(ua);
+  const installed=()=>matchMedia('(display-mode: standalone)').matches||matchMedia('(display-mode: fullscreen)').matches||navigator.standalone===true;
+  const refresh=()=>$('mmInstall').classList.toggle('hidden',installed()); // already running as the app: nothing to download
+  refresh(); matchMedia('(display-mode: standalone)').addEventListener?.('change',refresh);
+  window.HS_onInstallable=refresh;
+  function steps(){
+    if(iOS) return `<ol><li>اضغط زر المشاركة <span class="key">⬆︎</span> ${/iPad/.test(ua)?'فوق':'تحت'} بسفاري</li>
+      <li>انزل واختار <span class="key">إضافة إلى الشاشة الرئيسية</span></li><li>اضغط <span class="key">إضافة</span> — وبتلاقي أيقونة اللعبة على شاشتك</li></ol>
+      <div class="note">على الآيفون التنزيل بيصير من زر المشاركة بس (أبل ما بتسمح بزر تنزيل مباشر).</div>`;
+    if(firefox) return `<ol><li>فايرفوكس ما بيدعم تنزيل المواقع كتطبيقات</li><li>افتح الرابط بـ <span class="key">Chrome</span> أو <span class="key">Edge</span> واضغط «تنزيل اللعبة» من جديد</li></ol>`;
+    if(samsung) return `<ol><li>اضغط القائمة <span class="key">☰</span> تحت</li><li>اختار <span class="key">إضافة صفحة إلى</span> ثم <span class="key">الشاشة الرئيسية</span></li></ol>`;
+    if(android) return `<ol><li>اضغط القائمة <span class="key">⋮</span> فوق</li><li>اختار <span class="key">تثبيت التطبيق</span> أو <span class="key">إضافة إلى الشاشة الرئيسية</span></li><li>اضغط <span class="key">تثبيت</span></li></ol>`;
+    return `<ol><li>اضغط أيقونة التثبيت <span class="key">⊕</span> بآخر شريط العنوان فوق</li>
+      <li>أو من القائمة <span class="key">${edge?'…':'⋮'}</span> ← ${edge?'<span class="key">التطبيقات</span> ← <span class="key">تثبيت هذا الموقع كتطبيق</span>':'<span class="key">حفظ ومشاركة</span> ← <span class="key">تثبيت Hyper Shot</span>'}</li>
+      <li>بتنفتح اللعبة بنافذة لحالها وبتلاقيها بقائمة البرامج وعلى سطح المكتب</li></ol>
+      <div class="note">إذا ما لقيت خيار التثبيت، يمكن اللعبة منزّلة عندك أصلاً — دوّر عليها بقائمة البرامج.</div>`;
+  }
+  $('mmInstall').onclick=async()=>{
+    const ev=window.HS_INSTALL;
+    if(ev){ window.HS_INSTALL=null; ev.prompt(); // the browser's own install dialog
+      try{ const r=await ev.userChoice; if(r.outcome==='accepted'){ $('mmExitMsg').textContent='✓ جاري تنزيل اللعبة…'; return; } }catch(e){}
+      return; }
+    $('mmInstBody').innerHTML=steps(); mmShow('mmInst');
+  };
+  addEventListener('appinstalled',()=>{ window.HS_INSTALL=null; $('mmExitMsg').textContent='✓ نزلت اللعبة — افتحها من أيقونتها'; refresh(); });
+}
 $('mmExit').onclick=()=>{ try{ window.close(); }catch(e){}
   setTimeout(()=>{ if(!window.closed) $('mmExitMsg').textContent='المتصفح ما بيسمح للموقع يسكّر التاب — سكّره من المتصفح 🙏'; },300); };
 if(location.hash.length>1) mmShow('mmPlay'); // invite link: straight to the join screen
